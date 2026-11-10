@@ -64,6 +64,11 @@ public final class WorldHighlightRenderer {
 
     private static final Vector4f TMP_A = new Vector4f();
     private static final Vector4f TMP_B = new Vector4f();
+    /** Labels closer than ~3 degrees to an already drawn (nearer) label are skipped. */
+    private static final float LABEL_MIN_COS = (float) Math.cos(Math.toRadians(3.0));
+    private static final int MAX_LABELS = 64;
+    private static final float[] LABEL_DIRS = new float[MAX_LABELS * 3];
+    private static int labelCount;
 
     private WorldHighlightRenderer() {
     }
@@ -146,17 +151,20 @@ public final class WorldHighlightRenderer {
             if (ClientSettings.worldLabels) {
                 Font font = mc.font;
                 int bg = mc.options.getBackgroundColor(0.35f);
+                labelCount = 0;
+                if (tracked != null) {
+                    label(font, buffers, poseStack, camera, camX, camY, camZ, tracked, ClientSettings.trackedColor, bg, maxDist);
+                }
                 int drawn = 0;
                 for (int i = 0; i < count && drawn < maxMarkers; i++) {
                     NearbyView.Row r = NearbyView.row(i);
                     if (r.tracked || r.distance > markerLimit) {
                         continue;
                     }
-                    label(font, buffers, poseStack, camera, camX, camY, camZ, r, ClientSettings.textColor, bg, maxDist);
-                    drawn++;
-                }
-                if (tracked != null) {
-                    label(font, buffers, poseStack, camera, camX, camY, camZ, tracked, ClientSettings.trackedColor, bg, maxDist);
+                    // Nearest first: a farther label in almost the same direction would only overlap it.
+                    if (label(font, buffers, poseStack, camera, camX, camY, camZ, r, ClientSettings.textColor, bg, maxDist)) {
+                        drawn++;
+                    }
                 }
                 buffers.endBatch();
             }
@@ -266,17 +274,36 @@ public final class WorldHighlightRenderer {
         vc.addVertex(pose, bx, by, bz).setColor(argb).setNormal(pose, nx, ny, nz).setLineWidth(width);
     }
 
-    /** Billboarded see-through label (name + distance) above the structure, constant size on screen. */
-    private static void label(Font font, MultiBufferSource buffers, PoseStack poseStack, Camera camera,
-                              double camX, double camY, double camZ, NearbyView.Row r, int color, int background,
-                              float maxDist) {
+    /**
+     * Billboarded see-through label (name + distance) above the structure, constant size on screen. Skipped (returns
+     * false) when an already drawn label points in nearly the same direction.
+     */
+    private static boolean label(Font font, MultiBufferSource buffers, PoseStack poseStack, Camera camera,
+                                 double camX, double camY, double camZ, NearbyView.Row r, int color, int background,
+                                 float maxDist) {
         double y = r.entry.yKnown() ? r.entry.y() + 3.0 : camY + 6.0;
         double rx = r.targetX() - camX;
         double ry = y - camY;
         double rz = r.targetZ() - camZ;
         double dist = Math.sqrt(rx * rx + ry * ry + rz * rz);
         if (dist < 1.0e-3) {
-            return;
+            return false;
+        }
+        float dx = (float) (rx / dist);
+        float dy = (float) (ry / dist);
+        float dz = (float) (rz / dist);
+        for (int i = 0; i < labelCount; i++) {
+            int o = i * 3;
+            if (dx * LABEL_DIRS[o] + dy * LABEL_DIRS[o + 1] + dz * LABEL_DIRS[o + 2] > LABEL_MIN_COS) {
+                return false;
+            }
+        }
+        if (labelCount < MAX_LABELS) {
+            int o = labelCount * 3;
+            LABEL_DIRS[o] = dx;
+            LABEL_DIRS[o + 1] = dy;
+            LABEL_DIRS[o + 2] = dz;
+            labelCount++;
         }
         if (dist > maxDist) {
             double k = maxDist / dist;
@@ -296,5 +323,6 @@ public final class WorldHighlightRenderer {
         font.drawInBatch(r.distanceText, -r.distanceWidth / 2.0f, font.lineHeight + 1, 0xFFFFFF55, false, m, buffers,
                 Font.DisplayMode.SEE_THROUGH, background, LightTexture.FULL_BRIGHT);
         poseStack.popPose();
+        return true;
     }
 }

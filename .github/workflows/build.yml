@@ -45,5 +45,31 @@ jobs:
           path: |
             build/reports/tests/
             build/test-results/
-            run/logs/
+            run/gametest/logs/
           if-no-files-found: ignore
+
+  # Builds a fresh clone exactly like a developer would: ./dev bootstraps a project-local mise
+  # (no mise on the runner's PATH is used), which installs Temurin 21 into .tools/ and runs the
+  # Gradle wrapper with GRADLE_USER_HOME=.gradle-home. No caches: this is the "from scratch" check.
+  dev-wrapper:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Record home directory state
+        run: |
+          if command -v mise >/dev/null 2>&1; then echo "mise found at $(command -v mise); its data dirs are still redirected into .tools"; fi
+          ls -A "$HOME" | sort > "$RUNNER_TEMP/home-before.txt"
+
+      - name: ./dev build from a clean clone
+        run: ./dev build
+
+      - name: Check nothing new was written to the home directory
+        run: |
+          ls -A "$HOME" | sort > "$RUNNER_TEMP/home-after.txt"
+          if ! diff "$RUNNER_TEMP/home-before.txt" "$RUNNER_TEMP/home-after.txt"; then
+            echo "::error::new entries appeared in \$HOME during ./dev build"
+            exit 1
+          fi
+          ls -la build/libs/

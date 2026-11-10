@@ -21,6 +21,13 @@ export MISE_TRUSTED_CONFIG_PATHS="$ROOT"
 export MISE_YES=1
 export MISE_HIDE_UPDATE_WARNING=1
 export TMPDIR="$ROOT/.tools/tmp"
+# On Linux/macOS the JVM ignores TMPDIR: point java.io.tmpdir into the project and disable the
+# /tmp/hsperfdata_<user> files for every JVM the build starts (Gradle, NeoForm runtime, game runs).
+if [[ "$TMPDIR" != *" "* ]]; then
+  export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djava.io.tmpdir=$TMPDIR -XX:-UsePerfData"
+else
+  export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -XX:-UsePerfData"
+fi
 
 mkdir -p "$MISE_DATA_DIR" "$MISE_CACHE_DIR" "$MISE_STATE_DIR" "$MISE_TMP_DIR" "$MISE_CONFIG_DIR" "$TMPDIR"
 
