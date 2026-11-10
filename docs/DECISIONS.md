@@ -126,3 +126,27 @@ Autonomous decisions taken while building Structure Compass, with the reason for
   structures, cache without cheap rejections and with persistent invalidations, unbounded/stable `NearbyView`,
   language caches keyed on the loaded `Language`, fog-free box edges, boss-bar offset, safer teleport). 4 were
   rejected as not reproducible or intended.
+
+## Outside-the-project audit
+
+A snapshot of `%USERPROFILE%`, `%LOCALAPPDATA%`, `%APPDATA%`, `LocalLow` and `%TEMP%` was taken at the start and
+compared at the end (`.tools/audit-outside.ps1`).
+
+* **Not created:** `~/.gradle`, `~/.m2`, `~/.minecraft`, `%LOCALAPPDATA%\mise`, `~/.local/share/mise`,
+  `~/.config/mise`, `HKCU\Software\JavaSoft`. The JDK (`.tools/mise/data/installs/java`), the Gradle distribution,
+  all dependency/Minecraft caches (`.gradle-home`) and all game runs (`run/`, `run/gametest`, `run/smoketest`) are
+  inside the project.
+* **Created outside and removed again:**
+  * `%TEMP%\mise\latest-version.releases-v1` — mise's update check from the very first `mise --version` call, made
+    before the `MISE_*` variables were set. Deleted.
+  * `%TEMP%\hsperfdata_user` (empty) — JVM performance-data folder created by `javap` calls of the research
+    sub-agents, which ran the JDK directly instead of through the wrappers. Deleted. Builds through `./dev` /
+    `dev.cmd` do not create it (TMP/TEMP redirect on Windows, `JAVA_TOOL_OPTIONS=-XX:-UsePerfData` on Linux/macOS).
+  * The agent's own session scratch directory (`%TEMP%\claude\…\scratchpad`: the MDK clone, the baseline snapshot,
+    image crops). Deleted at the end.
+* **Pre-existing, not ours:** `~/.local/state/mise` (created 2026-10-26), Visual Studio installer logs
+  (`%TEMP%\dd_BackgroundDownload_*`), KDE Connect and other applications' temp files.
+* **Intended external effects:** the public GitHub repository `alien2003/structure-compass`, its Actions runs and the
+  `v1.0.0` release. `gh` used its existing login (`%APPDATA%\GitHub CLI`, pre-existing).
+* CI additionally checks on every push that `./dev build` on a clean Linux clone writes nothing to `$HOME` outside
+  the checkout.
