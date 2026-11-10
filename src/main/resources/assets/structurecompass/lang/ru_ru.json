@@ -26,6 +26,7 @@
   "structurecompass.message.no_targets": "Нет структур для отслеживания",
   "structurecompass.message.tracking_off": "Отслеживание выключено",
   "structurecompass.message.tracking": "Цель: %s (%s)",
+  "structurecompass.message.no_safe_spot": "Structure Compass: в этой точке нет безопасного места",
 
   "structurecompass.screen.title": "Structure Compass",
   "structurecompass.screen.search": "Поиск",
@@ -58,6 +59,7 @@
   "structurecompass.screen.copied": "Скопировано",
   "structurecompass.screen.copy.tooltip": "Скопировать координаты в буфер обмена: %s",
   "structurecompass.screen.teleport": "ТП",
+  "structurecompass.screen.teleport.tooltip": "Телепорт в безопасное место на поверхности над структурой (только с читами): %s",
   "structurecompass.screen.searching": "Поиск...",
   "structurecompass.screen.none_in_radius": "Не найдено в радиусе поиска",
 

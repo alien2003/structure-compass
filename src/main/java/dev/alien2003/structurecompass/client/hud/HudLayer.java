@@ -16,6 +16,8 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
+import net.neoforged.neoforge.client.event.CustomizeGuiOverlayEvent;
+import net.neoforged.neoforge.client.event.RenderGuiEvent;
 
 /**
  * HUD: the compass bar at the top of the screen, the list panel with the nearest structures and the big arrow of
@@ -35,7 +37,18 @@ public final class HudLayer {
     private static final int GAP = 6;
     private static final int COORD_COLOR = 0xFFB8B8B8;
 
+    /** Lowest y of the boss bars drawn this frame (0 = none); from NeoForge's boss bar event. */
+    private static int bossBarsBottom;
+
     private HudLayer() {
+    }
+
+    public static void onRenderGuiPre(RenderGuiEvent.Pre event) {
+        bossBarsBottom = 0;
+    }
+
+    public static void onBossBar(CustomizeGuiOverlayEvent.BossEventProgress event) {
+        bossBarsBottom = Math.max(bossBarsBottom, event.getY() + 6); // the bar is 5 px high, its name sits above it
     }
 
     public static void render(GuiGraphics g, DeltaTracker delta) {
@@ -57,9 +70,11 @@ public final class HudLayer {
         Font font = mc.font;
 
         g.nextStratum();
-        int barBottom = 0;
+        // Keep clear of the vanilla boss / raid bars drawn earlier this frame.
+        int top = bossBarsBottom > 0 ? bossBarsBottom + 3 : 3;
+        int barBottom = top;
         if (ClientSettings.compassBar) {
-            barBottom = CompassBar.render(g, font, yaw, px, pz);
+            barBottom = CompassBar.render(g, font, yaw, px, pz, top);
         }
         renderTracked(g, font, yaw, px, pz, barBottom);
         renderPanel(g, font, yaw, px, pz);

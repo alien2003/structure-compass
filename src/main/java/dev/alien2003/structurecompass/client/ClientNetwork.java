@@ -5,6 +5,7 @@ import dev.alien2003.structurecompass.network.ScanRequestPayload;
 import dev.alien2003.structurecompass.network.ScanResultsPayload;
 import dev.alien2003.structurecompass.network.ScanStartPayload;
 import dev.alien2003.structurecompass.network.ServerHelloPayload;
+import dev.alien2003.structurecompass.network.TeleportRequestPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.chat.Component;
@@ -65,6 +66,19 @@ public final class ClientNetwork {
         int radius = Math.min(ClientConfig.SEARCH_RADIUS.get(), ClientSession.maxRadius());
         ClientPacketDistributor.sendToServer(new ScanRequestPayload(dimension, radius,
                 ClientConfig.RESULTS_PER_TYPE.get(), ClientConfig.RESCAN_DISTANCE.get(), force));
+    }
+
+    /**
+     * Asks the server to teleport the player to X/Z in {@code dimension} at a safe height (the server checks the
+     * permission level again). Returns false when the request could not be sent.
+     */
+    public static boolean requestTeleport(ResourceKey<Level> dimension, int x, int z) {
+        ClientPacketListener connection = Minecraft.getInstance().getConnection();
+        if (!ClientSession.isActive() || connection == null || !connection.hasChannel(TeleportRequestPayload.TYPE)) {
+            return false;
+        }
+        ClientPacketDistributor.sendToServer(new TeleportRequestPayload(dimension, x, z));
+        return true;
     }
 
     /** Shows the one-time "disabled" chat message. */

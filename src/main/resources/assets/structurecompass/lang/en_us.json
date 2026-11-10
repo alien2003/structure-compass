@@ -26,6 +26,7 @@
   "structurecompass.message.no_targets": "No structures to track",
   "structurecompass.message.tracking_off": "Stopped tracking",
   "structurecompass.message.tracking": "Tracking %s (%s)",
+  "structurecompass.message.no_safe_spot": "Structure Compass: no safe spot found at this position",
 
   "structurecompass.screen.title": "Structure Compass",
   "structurecompass.screen.search": "Search",
@@ -58,6 +59,7 @@
   "structurecompass.screen.copied": "Copied",
   "structurecompass.screen.copy.tooltip": "Copy coordinates to the clipboard: %s",
   "structurecompass.screen.teleport": "TP",
+  "structurecompass.screen.teleport.tooltip": "Teleport to a safe spot at the surface above it (cheats only): %s",
   "structurecompass.screen.searching": "Searching...",
   "structurecompass.screen.none_in_radius": "None within the search radius",
 

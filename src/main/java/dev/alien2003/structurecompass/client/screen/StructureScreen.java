@@ -47,11 +47,11 @@ public final class StructureScreen extends Screen {
     private static final int HEADER_COLOR = 0xFFFFFFFF;
     private static final int MUTED = 0xFF8C8C8C;
 
-    // State lives in static fields so it survives re-opening the screen and window resizes.
+    // Search, filter and sort survive re-opening the screen (static); the viewed dimension starts as the current one.
     private static String search = "";
     private static Filter filter = Filter.ALL;
     private static Sort sort = Sort.DISTANCE;
-    private static @Nullable ResourceKey<Level> viewDimension;
+    private @Nullable ResourceKey<Level> viewDimension;
 
     private @Nullable EditBox searchBox;
     private @Nullable StructureList list;
@@ -69,11 +69,15 @@ public final class StructureScreen extends Screen {
         if (viewDimension == null || mc.player == null || !mc.player.connection.levels().contains(viewDimension)) {
             viewDimension = current;
         }
+        if (!viewDimension.equals(current) && ClientStructureData.get(viewDimension) == null) {
+            requestScan(false);
+        }
         int contentWidth = Math.min(this.width - 20, 460);
         int left = (this.width - contentWidth) / 2;
 
         int top = 20;
-        int searchWidth = contentWidth - 3 * 104;
+        int cycleWidth = Math.max(60, Math.min(100, (contentWidth - 12 - 110) / 3));
+        int searchWidth = Math.max(60, contentWidth - 3 * (cycleWidth + 4));
         this.searchBox = new EditBox(this.font, left, top, searchWidth, 20, Component.translatable("structurecompass.screen.search"));
         this.searchBox.setMaxLength(128);
         this.searchBox.setValue(search);
@@ -87,31 +91,31 @@ public final class StructureScreen extends Screen {
         int x = left + searchWidth + 4;
         this.addRenderableWidget(CycleButton.builder(StructureScreen::filterName, filter)
                 .withValues(Filter.values())
-                .create(x, top, 100, 20, Component.translatable("structurecompass.screen.filter"), (b, v) -> {
+                .create(x, top, cycleWidth, 20, Component.translatable("structurecompass.screen.filter"), (b, v) -> {
                     filter = v;
                     rebuild();
                 }));
-        x += 104;
+        x += cycleWidth + 4;
         this.addRenderableWidget(CycleButton.builder(StructureScreen::sortName, sort)
                 .withValues(Sort.values())
-                .create(x, top, 100, 20, Component.translatable("structurecompass.screen.sort"), (b, v) -> {
+                .create(x, top, cycleWidth, 20, Component.translatable("structurecompass.screen.sort"), (b, v) -> {
                     sort = v;
                     rebuild();
                 }));
-        x += 104;
+        x += cycleWidth + 4;
         List<ResourceKey<Level>> dims = dimensions(mc, current);
         this.addRenderableWidget(CycleButton.builder(StructureScreen::dimensionName, viewDimension)
                 .withValues(dims)
                 .displayOnlyValue()
                 .withTooltip(v -> Tooltip.create(Component.translatable("structurecompass.screen.dimension.tooltip")))
-                .create(x, top, 100, 20, Component.translatable("structurecompass.screen.dimension"), (b, v) -> {
+                .create(x, top, cycleWidth, 20, Component.translatable("structurecompass.screen.dimension"), (b, v) -> {
                     viewDimension = v;
                     requestScan(false);
                     rebuild();
                 }));
 
         int listTop = top + 26;
-        int listBottom = this.height - 30;
+        int listBottom = this.height - 44;
         this.list = new StructureList(mc, this.width, listBottom - listTop, listTop, contentWidth);
         this.addRenderableWidget(this.list);
 
@@ -163,7 +167,7 @@ public final class StructureScreen extends Screen {
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         super.render(g, mouseX, mouseY, partialTick);
         g.drawCenteredString(this.font, this.title, this.width / 2, 6, HEADER_COLOR);
-        g.drawCenteredString(this.font, statusLine(), this.width / 2, this.height - 37 + 2, MUTED);
+        g.drawCenteredString(this.font, statusLine(), this.width / 2, this.height - 39, MUTED);
     }
 
     private Component statusLine() {
@@ -178,7 +182,7 @@ public final class StructureScreen extends Screen {
         return Component.translatable(key, data.foundTypes(), data.types.size(), TextFormat.groupThousands(data.radius));
     }
 
-    private static void requestScan(boolean force) {
+    private void requestScan(boolean force) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || viewDimension == null) {
             return;
@@ -416,16 +420,15 @@ public final class StructureScreen extends Screen {
                     .size(64, 20).build();
             this.buttons.add(track);
             this.buttons.add(copy);
-            if (canCheat()) {
-                String command = teleportCommand(entry);
+            ResourceKey<Level> dimension = viewDimension;
+            if (canCheat() && dimension != null) {
                 this.teleport = Button.builder(Component.translatable("structurecompass.screen.teleport"), b -> {
-                            LocalPlayer player = Minecraft.getInstance().player;
-                            if (player != null) {
-                                player.connection.sendCommand(command);
+                            if (ClientNetwork.requestTeleport(dimension, entry.x(), entry.z())) {
                                 StructureScreen.this.onClose();
                             }
                         })
-                        .tooltip(Tooltip.create(Component.literal("/" + command)))
+                        .tooltip(Tooltip.create(Component.translatable("structurecompass.screen.teleport.tooltip",
+                                "/execute in " + dimension.identifier() + " run tp @s " + entry.x() + " ~ " + entry.z())))
                         .size(40, 20).build();
                 this.buttons.add(teleport);
             } else {
@@ -505,27 +508,9 @@ public final class StructureScreen extends Screen {
 
     // ---------------------------------------------------------------------------------------------------------
 
-    /** Teleport commands are offered only when the player may use them (cheats / op level 2). */
+    /** The teleport button is offered only when the player may use it (cheats / op level 2). */
     static boolean canCheat() {
         LocalPlayer player = Minecraft.getInstance().player;
         return player != null && player.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER);
-    }
-
-    /**
-     * {@code tp} to the real position when Y is known; otherwise {@code spreadplayers}, which puts the player on the
-     * surface at X/Z (below the bedrock roof in the Nether).
-     */
-    static String teleportCommand(StructureEntry entry) {
-        Minecraft mc = Minecraft.getInstance();
-        boolean sameDimension = mc.level != null && viewDimension != null && viewDimension.equals(mc.level.dimension());
-        String prefix = sameDimension || viewDimension == null ? "" : "execute in " + viewDimension.identifier() + " run ";
-        if (entry.yKnown()) {
-            return prefix + "tp @s " + entry.x() + " " + (entry.y() + 1) + " " + entry.z();
-        }
-        boolean ceiling = sameDimension ? mc.level.dimensionType().hasCeiling() : Level.NETHER.equals(viewDimension);
-        if (ceiling) {
-            return prefix + "spreadplayers " + entry.x() + " " + entry.z() + " 0 1 under 120 false @s";
-        }
-        return prefix + "spreadplayers " + entry.x() + " " + entry.z() + " 0 1 false @s";
     }
 }

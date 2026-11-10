@@ -4,7 +4,10 @@ import dev.alien2003.structurecompass.StructureCompass;
 import dev.alien2003.structurecompass.common.math.Colors;
 import dev.alien2003.structurecompass.common.math.TextFormat;
 import net.minecraft.client.resources.language.I18n;
+import net.minecraft.locale.Language;
 import net.minecraft.resources.Identifier;
+
+import org.jspecify.annotations.Nullable;
 
 import java.util.HashMap;
 import java.util.List;
@@ -18,7 +21,7 @@ public final class StructureInfo {
     private static final Map<Identifier, String> NAMES = new HashMap<>();
     private static final Map<Identifier, Integer> COLORS = new HashMap<>();
     private static final Map<String, Integer> BUILTIN_COLORS = new HashMap<>();
-    private static String languageCode = "";
+    private static @Nullable Language language;
     private static int overridesHash;
 
     static {
@@ -107,10 +110,11 @@ public final class StructureInfo {
         return builtin != null ? builtin : Colors.fromId(key);
     }
 
+    /** Keyed on the loaded {@link Language} instance: it is replaced only once the new language really loaded. */
     private static void checkLanguage() {
-        String code = net.minecraft.client.Minecraft.getInstance().getLanguageManager().getSelected();
-        if (!code.equals(languageCode)) {
-            languageCode = code;
+        Language current = Language.getInstance();
+        if (current != language) {
+            language = current;
             NAMES.clear();
         }
     }
@@ -131,6 +135,6 @@ public final class StructureInfo {
     public static void invalidate() {
         NAMES.clear();
         COLORS.clear();
-        languageCode = "";
+        language = null;
     }
 }

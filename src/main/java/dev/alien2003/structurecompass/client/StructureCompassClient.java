@@ -10,7 +10,9 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.config.ModConfigEvent;
+import net.neoforged.neoforge.client.event.CustomizeGuiOverlayEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
+import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.RegisterRenderPipelinesEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
@@ -39,6 +41,8 @@ public final class StructureCompassClient {
         modBus.addListener(ModConfigEvent.Reloading.class, event -> onConfigChanged(event.getConfig()));
 
         NeoForge.EVENT_BUS.addListener(RenderLevelStageEvent.AfterLevel.class, WorldHighlightRenderer::onAfterLevel);
+        NeoForge.EVENT_BUS.addListener(RenderGuiEvent.Pre.class, HudLayer::onRenderGuiPre);
+        NeoForge.EVENT_BUS.addListener(CustomizeGuiOverlayEvent.BossEventProgress.class, HudLayer::onBossBar);
         ClientEvents.register();
         VisualSmokeTest.registerIfEnabled();
     }

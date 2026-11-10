@@ -64,6 +64,7 @@ public final class ClientEvents {
             configDirty = false;
             ClientConfig.TypeFilterCache.invalidate();
             StructureInfo.invalidate();
+            NearbyView.invalidateText();
         }
         ClientSettings.refresh();
         LocalPlayer player = mc.player;
@@ -77,8 +78,7 @@ public final class ClientEvents {
             return;
         }
         resendIfSettingsChanged();
-        NearbyView.update(mc.level.dimension(), player.getX(), player.getZ(),
-                mc.getLanguageManager().getSelected(), mc.font);
+        NearbyView.update(mc.level.dimension(), player.getX(), player.getZ(), mc.font);
     }
 
     private static void resendIfSettingsChanged() {
@@ -142,11 +142,16 @@ public final class ClientEvents {
             return;
         }
         int count = Math.min(NearbyView.count(), Math.max(ClientSettings.hudEntries, ClientSettings.maxMarkers));
+        TrackedTarget current = TrackedTarget.get();
         if (count == 0) {
-            actionBar(Component.translatable("structurecompass.message.no_targets"));
+            if (current != null) {
+                TrackedTarget.clear();
+                actionBar(Component.translatable("structurecompass.message.tracking_off"));
+            } else {
+                actionBar(Component.translatable("structurecompass.message.no_targets"));
+            }
             return;
         }
-        TrackedTarget current = TrackedTarget.get();
         int next = 0;
         if (current != null) {
             int index = -1;

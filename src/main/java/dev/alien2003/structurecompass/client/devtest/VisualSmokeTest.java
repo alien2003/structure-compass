@@ -69,7 +69,7 @@ public final class VisualSmokeTest {
     private static void command(String command) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
-            if (mc.player.getAbilities().mayfly && !mc.player.getAbilities().flying) {
+            if (mc.player.mayFly() && !mc.player.getAbilities().flying) {
                 mc.player.getAbilities().flying = true; // creative: hover where we teleport to
                 mc.player.onUpdateAbilities();
             }
