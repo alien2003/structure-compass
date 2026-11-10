@@ -47,6 +47,11 @@ What is not implemented, not verified, or behaves differently from what one migh
 - The HUD and world rendering do not allocate; the remaining per-frame allocations happen inside vanilla's font
   renderer.
 
+## Compatibility
+
+- `neoforge.mods.toml` accepts any NeoForge `21.11.x` (`[21.11.0,)`) and Minecraft `1.21.11` only. Everything was built and
+  tested against NeoForge **21.11.48**; older 21.11 betas were not tried.
+
 ## Verification status
 
 - Automated: JUnit tests for the math/formatting helpers; 8 game tests on the headless game test server (seed 0)
