@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v6
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Check tag matches mod_version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PROP=$(grep '^mod_version=' gradle.properties | cut -d= -f2 | tr -d '\r')
+          if [ "$VERSION" != "$PROP" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match mod_version=$PROP in gradle.properties"
+            exit 1
+          fi
+
+      - name: Build and test
+        run: ./gradlew build --no-configuration-cache
+
+      - name: Run GameTests
+        run: ./gradlew runGameTestServer --no-configuration-cache
+
+      - name: Extract changelog section
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            /^## \[/ { if (found) exit; if (index($0, "[" ver "]")) { found=1; next } }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "Release $GITHUB_REF_NAME" > release-notes.md
+          fi
+          cat release-notes.md
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/libs/*.jar \
+            --title "Structure Compass $GITHUB_REF_NAME (NeoForge 1.21.11)" \
+            --notes-file release-notes.md \
+            --verify-tag
