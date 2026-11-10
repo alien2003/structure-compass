@@ -285,7 +285,7 @@ public final class WorldHighlightRenderer {
             rz *= k;
             dist = maxDist;
         }
-        float scale = (float) (0.0028 * Math.max(dist, 8.0));
+        float scale = (float) (0.0036 * Math.max(dist, 8.0));
         poseStack.pushPose();
         poseStack.translate(rx, ry, rz);
         poseStack.mulPose(camera.rotation());

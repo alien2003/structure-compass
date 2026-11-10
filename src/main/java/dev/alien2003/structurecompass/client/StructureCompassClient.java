@@ -1,6 +1,7 @@
 package dev.alien2003.structurecompass.client;
 
 import dev.alien2003.structurecompass.StructureCompass;
+import dev.alien2003.structurecompass.client.devtest.VisualSmokeTest;
 import dev.alien2003.structurecompass.client.hud.HudLayer;
 import dev.alien2003.structurecompass.client.render.WorldHighlightRenderer;
 import net.neoforged.api.distmarker.Dist;
@@ -39,6 +40,7 @@ public final class StructureCompassClient {
 
         NeoForge.EVENT_BUS.addListener(RenderLevelStageEvent.AfterLevel.class, WorldHighlightRenderer::onAfterLevel);
         ClientEvents.register();
+        VisualSmokeTest.registerIfEnabled();
     }
 
     /** May be called from the config file watcher thread: only flag, the client tick does the work. */

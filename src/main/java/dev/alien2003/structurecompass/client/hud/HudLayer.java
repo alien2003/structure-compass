@@ -11,6 +11,7 @@ import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
@@ -45,6 +46,9 @@ public final class HudLayer {
         }
         if (!ClientSettings.hudEnabled) {
             return;
+        }
+        if (mc.screen != null && !(mc.screen instanceof ChatScreen)) {
+            return; // keep menus (including the structure screen) clean; stay visible while chatting
         }
         float pt = delta.getGameTimeDeltaPartialTick(false);
         float yaw = player.getViewYRot(pt);

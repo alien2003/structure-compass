@@ -53,6 +53,15 @@ neoForge {
             gameDirectory = project.file('run/gametest')
         }
 
+        // Development-only visual smoke test: creates a world with a fixed seed, takes screenshots of the HUD,
+        // world highlights and screens into run/smoketest/screenshots, then quits (see VisualSmokeTest).
+        clientSmokeTest {
+            client()
+            gameDirectory = project.file('run/smoketest')
+            systemProperty 'structurecompass.smoketest', 'true'
+            programArguments.addAll('--width', '1600', '--height', '900')
+        }
+
         configureEach {
             systemProperty 'forge.logging.markers', 'REGISTRIES'
             logLevel = org.slf4j.event.Level.DEBUG
