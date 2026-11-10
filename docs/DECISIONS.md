@@ -66,17 +66,24 @@ Autonomous decisions taken while building Structure Compass, with the reason for
 * **Dedicated servers** do not run searches: the mod is a single-player helper and a server-wide structure finder
   would be a cheat for every player.
 * **Rendering.** World highlights are drawn in `RenderLevelStageEvent.AfterLevel` (after compositing, before the
-  hand) with two custom pipelines registered via `RegisterRenderPipelinesEvent`: lines and position-colour quads with
-  `NO_DEPTH_TEST`; labels use the vanilla see-through text type. Far markers are pulled towards the camera inside the
-  far plane, lines are clipped at the near plane like vanilla gizmos. All per-frame data is precomputed on the client
-  tick (`NearbyView`), so the frame path does not allocate.
+  hand) with one custom position-colour quad pipeline (`NO_DEPTH_TEST`, no cull, registered via
+  `RegisterRenderPipelinesEvent`). Box edges are thin camera-facing quads of constant on-screen width instead of
+  vanilla lines, because the line shader applies fog (boxes would turn fog-coloured past the render distance) and the
+  quad pipeline does not; edges are clipped at the near plane like vanilla gizmos. Labels use vanilla see-through text;
+  overlapping labels are thinned out nearest-first and drawn farthest-first. Far markers are pulled radially inside the
+  far plane. All per-frame data is precomputed on the client tick (`NearbyView`, index sort with stable row slots),
+  vertices are written camera-relative without per-vertex matrix math, so the frame path does not allocate.
+* **Compass bar** sits below vanilla boss/raid bars (their position comes from NeoForge's
+  `CustomizeGuiOverlayEvent.BossEventProgress`).
 * **"Enabled types"** are stored as a blacklist (`disabledTypes`) so structures added by new mods/datapacks show up
   automatically.
 * **Key bindings** `K` (screen), `H` (HUD), `J` (world highlights), `G` (next target) — unused by vanilla 1.21.11,
   all rebindable, category "Structure Compass".
-* **Teleport button** only when the player has permission level 2 (`Permissions.COMMANDS_GAMEMASTER`). Known Y →
-  `/tp`; unknown Y → `/spreadplayers` (lands on the surface; `under 120` in dimensions with a ceiling);
-  other dimensions are wrapped in `/execute in <dimension> run …`.
+* **Teleport button** only when the player has permission level 2 (`Permissions.COMMANDS_GAMEMASTER`). It sends a small
+  request; the server re-checks the permission, finds a safe Y at the structure's X/Z (`MOTION_BLOCKING` heightmap, or an
+  air gap with a sturdy floor under a ceiling) and runs vanilla `/execute in <dimension> run tp …`. (A client-side
+  `/spreadplayers` was tried first, but it refuses liquid and fails over oceans and lava; `/tp` to a box centre can put
+  the player inside blocks.)
 * **Structure names.** `structurecompass.structure.<namespace>.<path>` translations for all 34 vanilla structures
   (en/ru); other mods' structures use `structure.<namespace>.<path>` if they provide it, else a humanized id
   ("deep_dark_tower" → "Deep Dark Tower", plus the mod id in the screen).
@@ -109,3 +116,13 @@ Autonomous decisions taken while building Structure Compass, with the reason for
   directly (the runner already has Java), the local workflow uses `./dev`.
 * `release.yml`: on `v*` tags, checks that the tag matches `mod_version`, builds and tests, extracts the matching
   section of `CHANGELOG.md` and publishes the GitHub release with the jar via `gh release create`.
+
+## Review
+
+* After the first complete version, an automated multi-agent review (4 lenses: server threading, client logic,
+  rendering/performance, dist-safety/build/tests) produced 32 findings; each was checked by an independent skeptic
+  agent. 28 were confirmed and fixed (e.g. per-type failure isolation in the worker, re-locating disproved predictions,
+  modelling vanilla's "skip a set whose structure already started here", generation-point slack for jigsaw
+  structures, cache without cheap rejections and with persistent invalidations, unbounded/stable `NearbyView`,
+  language caches keyed on the loaded `Language`, fog-free box edges, boss-bar offset, safer teleport). 4 were
+  rejected as not reproducible or intended.

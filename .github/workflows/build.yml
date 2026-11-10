@@ -60,16 +60,21 @@ jobs:
       - name: Record home directory state
         run: |
           if command -v mise >/dev/null 2>&1; then echo "mise found at $(command -v mise); its data dirs are still redirected into .tools"; fi
-          ls -A "$HOME" | sort > "$RUNNER_TEMP/home-before.txt"
+          touch "$RUNNER_TEMP/stamp"
+          sleep 1
 
       - name: ./dev build from a clean clone
         run: ./dev build
 
-      - name: Check nothing new was written to the home directory
+      - name: Check nothing was written to the home directory outside the checkout
         run: |
-          ls -A "$HOME" | sort > "$RUNNER_TEMP/home-after.txt"
-          if ! diff "$RUNNER_TEMP/home-before.txt" "$RUNNER_TEMP/home-after.txt"; then
-            echo "::error::new entries appeared in \$HOME during ./dev build"
+          # Everything under $HOME that changed during the build, except the runner's own work/log folders
+          # (the checkout itself lives in $HOME/work).
+          changed=$(find "$HOME" -mindepth 1 \( -path "$HOME/work" -o -path "$HOME/runners" -o -path "$HOME/actions-runner" \) -prune \
+            -o -newer "$RUNNER_TEMP/stamp" -print 2>/dev/null || true)
+          if [ -n "$changed" ]; then
+            echo "$changed"
+            echo "::error::files outside the project were written during ./dev build"
             exit 1
           fi
           ls -la build/libs/

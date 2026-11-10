@@ -32,13 +32,18 @@ What is not implemented, not verified, or behaves differently from what one migh
 
 ## Rendering / UI
 
-- Outline boxes use the vanilla line shader, which is tinted by fog beyond the render distance. Boxes are only drawn
-  within `boxDistance` (192 blocks by default), so this is rarely visible. Beams and labels are not affected.
-- Very large structures (mineshafts) are drawn with up to 256 piece boxes each and at most 4096 piece boxes per
-  frame.
+- Very large structures (mineshafts) are drawn with up to 256 piece boxes each and at most 2048 piece boxes per
+  frame; outline boxes are limited to `boxDistance` (192 blocks by default).
+- When several labels would overlap on screen, only the nearest one is drawn (the beams are still drawn).
+- The compass bar moves down below vanilla boss/raid bars; other mods' top-of-screen HUD elements may still
+  overlap it (its width and range are configurable, and it can be turned off).
+- The teleport button (cheats only) asks the server to move you to a safe spot at the surface above the structure
+  (or to an air gap under the Nether roof); it does not try to put you inside underground structures.
 - Not tested with shader packs (Iris/Oculus), with Fabulous graphics, with GUI-heavy mods, or with very small GUI
   scales/resolutions.
-- The tracked target is not saved between game sessions.
+- The tracked target is not saved between game sessions. If you track a predicted structure that later turns out not to
+  exist (e.g. an old chunk generated without it), the tracking keeps pointing there until you untrack it (`G` or the
+  screen).
 - The HUD and world rendering do not allocate; the remaining per-frame allocations happen inside vanilla's font
   renderer.
 

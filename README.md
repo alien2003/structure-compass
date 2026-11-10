@@ -204,9 +204,13 @@ Useful tasks:
 
 ### Screenshots
 
-| HUD | Structure screen |
+| HUD, beams and labels | Structure screen (`K`) |
 |---|---|
 | ![HUD](docs/images/hud.png) | ![Structure screen](docs/images/screen.png) |
+| **Nether: fortress boxes through walls** | **Tracked structure** |
+| ![Nether](docs/images/nether.png) | ![Tracked structure](docs/images/world.png) |
+
+The screenshots are produced automatically by `./dev runClientSmokeTest` (seed 20261109).
 
 ### License
 
