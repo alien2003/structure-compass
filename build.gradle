@@ -38,18 +38,19 @@ neoForge {
     runs {
         client {
             client()
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
 
         server {
             server()
             programArgument '--nogui'
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
 
+        // Headless run of the game tests: starts the game test server (no window, no EULA), runs every
+        // structurecompass:* test, exits with the number of failed required tests (non-zero fails the task).
         gameTestServer {
             type = "gameTestServer"
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            programArguments.addAll('--tests', "${mod_id}:*")
+            gameDirectory = project.file('run/gametest')
         }
 
         configureEach {

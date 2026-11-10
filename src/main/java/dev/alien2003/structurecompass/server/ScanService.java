@@ -161,6 +161,20 @@ public final class ScanService {
         }
     }
 
+    /**
+     * Datapack reload ({@code /reload}): biome tags and structure templates may have changed, so every cached
+     * prediction is dropped and all players are re-scanned on the next tick.
+     */
+    public void onDataReloaded() {
+        locators.clear();
+        for (PlayerState state : players.values()) {
+            cancel(state.autoJob);
+            cancel(state.browseJob);
+            state.browseJob = null;
+            state.scanDimension = null; // forces a fresh auto scan
+        }
+    }
+
     public void handleRequest(ServerPlayer player, ScanRequestPayload request) {
         if (!enabled) {
             return;

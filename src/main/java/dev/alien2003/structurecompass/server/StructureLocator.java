@@ -80,7 +80,7 @@ public final class StructureLocator {
                           double distanceSqr) {
     }
 
-    private StructureLocator(ServerLevel level) {
+    private StructureLocator(ServerLevel level, boolean respectWorldOptions) {
         this.dimension = level.dimension();
         this.registryAccess = level.registryAccess();
         this.generator = level.getChunkSource().getGenerator();
@@ -101,7 +101,11 @@ public final class StructureLocator {
         }
 
         List<Holder.Reference<Structure>> found = new ArrayList<>();
+        boolean generatesStructures = !respectWorldOptions || level.getServer().getWorldData().worldGenOptions().generateStructures();
         level.registryAccess().lookupOrThrow(Registries.STRUCTURE).listElements().forEach(ref -> {
+            if (!generatesStructures) {
+                return; // "Generate Structures: OFF" - nothing can be found
+            }
             List<StructurePlacement> structurePlacements = state.getPlacementsForStructure(ref);
             if (structurePlacements.isEmpty()) {
                 return;
@@ -124,7 +128,15 @@ public final class StructureLocator {
 
     /** Must be called on the server thread. */
     public static StructureLocator create(ServerLevel level) {
-        return new StructureLocator(level);
+        return new StructureLocator(level, true);
+    }
+
+    /**
+     * Like {@link #create} but ignores the world's "Generate Structures" option. Used by the game tests: the game test
+     * server always runs with structures disabled, yet the placement math must still be verified there.
+     */
+    public static StructureLocator createIgnoringWorldOptions(ServerLevel level) {
+        return new StructureLocator(level, false);
     }
 
     public ResourceKey<Level> dimension() {
@@ -233,7 +245,9 @@ public final class StructureLocator {
                 long cell = PlacementMath.ringCell(k, i);
                 int regionX = regionX0 + PlacementMath.unpackX(cell);
                 int regionZ = regionZ0 + PlacementMath.unpackZ(cell);
-                ChunkPos chunk = placement.getPotentialStructureChunk(seed, regionX, regionZ);
+                // Despite its parameter names, getPotentialStructureChunk takes CHUNK coordinates and floor-divides
+                // them by the spacing itself, so pass any chunk of the region (its first one).
+                ChunkPos chunk = placement.getPotentialStructureChunk(seed, regionX * spacing, regionZ * spacing);
                 if (!withinRadius(chunk, centerX, centerZ, radiusSqr)) {
                     continue;
                 }
@@ -420,6 +434,22 @@ public final class StructureLocator {
             }
             return Outcome.NONE;
         }
+    }
+
+    /** Whether this locator predicts a start of {@code structure} in {@code chunk} (through any of its placements). */
+    public boolean predicts(Holder<Structure> structure, ChunkPos chunk) {
+        List<PlacementRef> refs = placements.get(structure.value());
+        if (refs == null) {
+            return false;
+        }
+        for (PlacementRef ref : refs) {
+            Outcome outcome = outcome(ref.setIndex(), chunk);
+            if (outcome.entryIndex() >= 0
+                    && sets.get(ref.setIndex()).structures().get(outcome.entryIndex()).structure().value() == structure.value()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Index of the set entry that holds the structure, used to verify generated chunks. */

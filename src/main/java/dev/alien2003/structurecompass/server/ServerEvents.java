@@ -2,6 +2,7 @@ package dev.alien2003.structurecompass.server;
 
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.TagsUpdatedEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
@@ -18,6 +19,14 @@ public final class ServerEvents {
         NeoForge.EVENT_BUS.addListener(ServerEvents::onServerTick);
         NeoForge.EVENT_BUS.addListener(ServerEvents::onLoggedIn);
         NeoForge.EVENT_BUS.addListener(ServerEvents::onLoggedOut);
+        NeoForge.EVENT_BUS.addListener(ServerEvents::onTagsUpdated);
+    }
+
+    private static void onTagsUpdated(TagsUpdatedEvent event) {
+        ScanService service = ScanService.get();
+        if (service != null && event.getUpdateCause() == TagsUpdatedEvent.UpdateCause.SERVER_DATA_LOAD) {
+            service.onDataReloaded();
+        }
     }
 
     private static void onServerStarted(ServerStartedEvent event) {

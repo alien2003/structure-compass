@@ -43,16 +43,32 @@ public final class GeneratedStructures {
         return new Check(Status.PRESENT, toEntry(start));
     }
 
-    /** Converts a valid start into a network entry with its overall and per-piece boxes. */
+    /**
+     * Converts a valid start into a network entry with its overall and per-piece boxes. The overall box is the union
+     * of the piece boxes: {@link StructureStart#getBoundingBox()} is inflated by 12 blocks for structures with
+     * terrain adaptation (villages, ancient cities...), which would look wrong when drawn.
+     */
     public static StructureEntry toEntry(StructureStart start) {
-        BoundingBox box = start.getBoundingBox();
-        BoxData bounds = BoxData.of(box);
         List<StructurePiece> pieces = start.getPieces();
         int n = Math.min(pieces.size(), StructureEntry.MAX_PIECES);
         List<BoxData> pieceBoxes = new ArrayList<>(n);
-        for (int i = 0; i < n; i++) {
-            pieceBoxes.add(BoxData.of(pieces.get(i).getBoundingBox()));
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
+        for (StructurePiece piece : pieces) {
+            BoundingBox b = piece.getBoundingBox();
+            minX = Math.min(minX, b.minX());
+            minY = Math.min(minY, b.minY());
+            minZ = Math.min(minZ, b.minZ());
+            maxX = Math.max(maxX, b.maxX());
+            maxY = Math.max(maxY, b.maxY());
+            maxZ = Math.max(maxZ, b.maxZ());
+            if (pieceBoxes.size() < n) {
+                pieceBoxes.add(BoxData.of(b));
+            }
         }
+        BoxData bounds = pieces.isEmpty()
+                ? BoxData.of(start.getBoundingBox())
+                : new BoxData(minX, minY, minZ, maxX, maxY, maxZ);
         return new StructureEntry(start.getChunkPos().x, start.getChunkPos().z,
                 bounds.centerX(), bounds.centerY(), bounds.centerZ(), true, true,
                 Optional.of(bounds), List.copyOf(pieceBoxes));

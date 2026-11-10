@@ -3,6 +3,8 @@ package dev.alien2003.structurecompass;
 import com.mojang.logging.LogUtils;
 import dev.alien2003.structurecompass.network.ModNetwork;
 import dev.alien2003.structurecompass.server.ServerEvents;
+import dev.alien2003.structurecompass.server.gametest.StructureCompassGameTests;
+import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -21,5 +23,9 @@ public final class StructureCompass {
     public StructureCompass(IEventBus modBus, ModContainer container) {
         modBus.addListener(ModNetwork::register);
         ServerEvents.register();
+        if (!FMLEnvironment.isProduction()) {
+            // Game tests only exist in development runs (runGameTestServer, dev client/server).
+            StructureCompassGameTests.register(modBus);
+        }
     }
 }
