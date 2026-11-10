@@ -214,7 +214,8 @@ public final class StructureCompassGameTests {
                 int spacing = spread.spacing();
                 int rx0 = Math.floorDiv(c.pos().getX() >> 4, spacing);
                 int rz0 = Math.floorDiv(c.pos().getZ() >> 4, spacing);
-                int rings = (int) Math.ceil(limit / (spacing * 16.0)) + 1;
+                // Generation points can lie outside their start chunk (jigsaw start pieces), so search one ring wider.
+                int rings = (int) Math.ceil((limit + 128) / (spacing * 16.0)) + 1;
                 for (int rx = rx0 - rings; rx <= rx0 + rings; rx++) {
                     for (int rz = rz0 - rings; rz <= rz0 + rings; rz++) {
                         ChunkPos chunk = spread.getPotentialStructureChunk(level.getSeed(), rx * spacing, rz * spacing);
@@ -222,26 +223,21 @@ public final class StructureCompassGameTests {
                         if (start == null) {
                             continue;
                         }
-                        // distance to the chunk's closest point is a lower bound of the generation point distance
-                        double dx = Math.max(0, Math.max(chunk.getMinBlockX() - c.pos().getX(), c.pos().getX() - chunk.getMaxBlockX()));
-                        double dz = Math.max(0, Math.max(chunk.getMinBlockZ() - c.pos().getZ(), c.pos().getZ() - chunk.getMaxBlockZ()));
-                        double lower = Math.sqrt(dx * dx + dz * dz);
-                        if (lower + 1.0 < limit) {
-                            helper.assertTrue(ourChunks.contains(chunk.toLong()) || lowerBoundTie(chunk, c.pos(), limit),
-                                    "missed real " + what + " at chunk " + chunk + " (" + Math.round(lower) + " m < " + Math.round(limit) + " m)");
+                        // The real generation point, as vanilla computes it, is what our distances are measured to.
+                        BlockPos point = oracle.generationPoint(holder, chunk);
+                        if (point == null) {
+                            continue;
+                        }
+                        double real = horizontalDistance(c.pos(), point.getX(), point.getZ());
+                        if (real + 1.0 < limit) {
+                            helper.assertTrue(ourChunks.contains(chunk.toLong()),
+                                    "missed real " + what + " at chunk " + chunk + " (" + Math.round(real) + " m < " + Math.round(limit) + " m)");
                         }
                     }
                 }
             }
         }
         helper.succeed();
-    }
-
-    /** A chunk whose farthest point is beyond the limit may legitimately rank after our 3rd result. */
-    private static boolean lowerBoundTie(ChunkPos chunk, BlockPos pos, double limit) {
-        double dx = Math.max(Math.abs(chunk.getMinBlockX() - pos.getX()), Math.abs(chunk.getMaxBlockX() - pos.getX()));
-        double dz = Math.max(Math.abs(chunk.getMinBlockZ() - pos.getZ()), Math.abs(chunk.getMaxBlockZ() - pos.getZ()));
-        return Math.sqrt(dx * dx + dz * dz) >= limit;
     }
 
     /** Real starts are converted into tight boxes (union of the pieces) with a centre inside the overall box. */

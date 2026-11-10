@@ -91,6 +91,8 @@ public final class ScanService {
         boolean scanCenterValid;
         final Map<Identifier, List<Tracked>> results = new LinkedHashMap<>();
         final Map<Identifier, Holder<Structure>> holders = new HashMap<>();
+        /** Types whose predictions turned out wrong and need a fresh search once the current job is drained. */
+        final Set<Holder<Structure>> pendingRelocate = new LinkedHashSet<>();
     }
 
     private ScanService(MinecraftServer server) {
@@ -170,7 +172,10 @@ public final class ScanService {
         for (PlayerState state : players.values()) {
             cancel(state.autoJob);
             cancel(state.browseJob);
+            state.autoJob = null;
             state.browseJob = null;
+            state.pendingRelocate.clear();
+            state.results.clear();
             state.scanDimension = null; // forces a fresh auto scan
         }
     }
@@ -206,6 +211,15 @@ public final class ScanService {
         if (!enabled || players.isEmpty()) {
             return;
         }
+        try {
+            tickPlayers();
+        } catch (RuntimeException e) {
+            // Never take the server tick down with us.
+            StructureCompass.LOGGER.error("Structure Compass: server tick failed", e);
+        }
+    }
+
+    private void tickPlayers() {
         tickCount++;
         Iterator<Map.Entry<UUID, PlayerState>> it = players.entrySet().iterator();
         while (it.hasNext()) {
@@ -238,6 +252,13 @@ public final class ScanService {
         }
         drainAuto(player, state);
         drainBrowse(player, state);
+        ScanJob current = state.autoJob;
+        if (!state.pendingRelocate.isEmpty() && current != null && current.isFinished() && current.output.isEmpty()
+                && state.scanDimension == level.dimension()) {
+            List<Holder<Structure>> types = new ArrayList<>(state.pendingRelocate);
+            state.pendingRelocate.clear();
+            relocateTypes(state, level, types);
+        }
         if (state.scanDimension == level.dimension()) {
             if (tickCount % REFRESH_INTERVAL_TICKS == 0) {
                 refreshGenerated(player, state, level);
@@ -264,6 +285,7 @@ public final class ScanService {
         state.scanCenterValid = true;
         state.results.clear();
         state.holders.clear();
+        state.pendingRelocate.clear();
         for (Holder.Reference<Structure> ref : locator.structures()) {
             state.holders.put(ref.key().identifier(), ref);
         }
@@ -279,8 +301,9 @@ public final class ScanService {
         cancel(state.browseJob);
         StructureLocator locator = locator(target);
         double scale = from.dimensionType().coordinateScale() / target.dimensionType().coordinateScale();
-        int cx = (int) Math.floor(player.getX() * scale);
-        int cz = (int) Math.floor(player.getZ() * scale);
+        var border = target.getWorldBorder();
+        int cx = (int) Math.floor(Math.max(border.getMinX(), Math.min(border.getMaxX() - 1, player.getX() * scale)));
+        int cz = (int) Math.floor(Math.max(border.getMinZ(), Math.min(border.getMaxZ() - 1, player.getZ() * scale)));
         int scanId = nextScanId++;
         ScanJob job = new ScanJob(locator, scanId, cx, cz, state.radius, state.perType, locator.structures());
         state.browseJob = job;
@@ -291,8 +314,12 @@ public final class ScanService {
 
     /** Re-locates only some types of the current auto scan (after a prediction turned out wrong). */
     private void relocateTypes(PlayerState state, ServerLevel level, List<Holder<Structure>> types) {
-        if (types.isEmpty() || state.autoJob == null || !state.autoJob.isFinished()) {
-            return; // a running full scan will deliver them anyway
+        if (types.isEmpty() || state.autoJob == null) {
+            return;
+        }
+        if (!state.autoJob.isFinished() || !state.autoJob.output.isEmpty()) {
+            state.pendingRelocate.addAll(types); // retried by tickPlayer once the current job is drained
+            return;
         }
         StructureLocator locator = locator(level);
         ScanJob job = new ScanJob(locator, state.autoJob.scanId, (int) Math.floor(state.scanX), (int) Math.floor(state.scanZ),
@@ -325,8 +352,12 @@ public final class ScanService {
                 Tracked t = resolve(level, job.locator, loc, job.centerX, job.centerZ);
                 if (t != null) {
                     tracked.add(t);
+                } else {
+                    state.pendingRelocate.add(located.type()); // a loaded chunk disproved it: search that type again
                 }
             }
+            // Real boxes move the target from the generation point to the box centre: keep "nearest first".
+            tracked.sort((a, b) -> Double.compare(a.distanceSqr, b.distanceSqr));
             state.results.put(id, tracked);
             batch.add(toTypeResult(id, tracked));
         }
@@ -368,6 +399,7 @@ public final class ScanService {
                     tracked.add(t);
                 }
             }
+            tracked.sort((a, b) -> Double.compare(a.distanceSqr, b.distanceSqr));
             batch.add(toTypeResult(id, tracked));
         }
         boolean done = job.isFinished() && job.output.isEmpty();

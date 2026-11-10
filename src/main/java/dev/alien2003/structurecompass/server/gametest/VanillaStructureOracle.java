@@ -58,6 +58,17 @@ final class VanillaStructureOracle {
         return start(structure, chunk) != null;
     }
 
+    /** Vanilla's generation point (the stub position world generation computes) of the structure in that chunk. */
+    @Nullable BlockPos generationPoint(Holder<Structure> structure, ChunkPos chunk) {
+        Structure s = structure.value();
+        var generator = level.getChunkSource().getGenerator();
+        return s.findValidGenerationPoint(new Structure.GenerationContext(level.registryAccess(), generator,
+                        generator.getBiomeSource(), state.randomState(), level.getStructureManager(), state.getLevelSeed(),
+                        chunk, level, s.biomes()::contains))
+                .map(Structure.GenerationStub::position)
+                .orElse(null);
+    }
+
     /** Port of {@code ChunkGenerator#findNearestMapStructure} for a single structure; returns the locate position. */
     @Nullable BlockPos locate(Holder<Structure> structure, BlockPos pos, int searchRadius) {
         List<StructurePlacement> placements = state.getPlacementsForStructure(structure);

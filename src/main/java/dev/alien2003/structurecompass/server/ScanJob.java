@@ -47,8 +47,15 @@ final class ScanJob implements Runnable {
                 if (cancelled.get()) {
                     return;
                 }
-                List<StructureLocator.Located> located =
-                        locator.locate(type, centerX, centerZ, radius, perType, cancelled::get);
+                List<StructureLocator.Located> located;
+                try {
+                    located = locator.locate(type, centerX, centerZ, radius, perType, cancelled::get);
+                } catch (RuntimeException | LinkageError | StackOverflowError e) {
+                    // One broken (usually modded) structure must not stop the search for all the others.
+                    StructureCompass.LOGGER.warn("Structure Compass: search for {} failed: {}",
+                            type.unwrapKey().map(k -> k.identifier().toString()).orElse("?"), e.toString());
+                    located = List.of();
+                }
                 if (cancelled.get()) {
                     return;
                 }

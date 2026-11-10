@@ -26,7 +26,6 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -34,6 +33,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -43,12 +43,19 @@ import java.util.function.BooleanSupplier;
  * <p>An instance is a snapshot of one dimension's generator. It is created on the server thread and is then safe to
  * use from the locator worker thread: everything it touches (placement math, noise/biome sampling through
  * {@link RandomState}, {@link StructureTemplateManager}, {@link Structure#findValidGenerationPoint}) is what vanilla
- * itself runs concurrently on world-generation worker threads. Results are cached per (structure set, chunk).
+ * itself runs concurrently on world-generation worker threads. Outcomes of the expensive validation are cached per
+ * (structure set, chunk).
  */
 public final class StructureLocator {
     /** Upper bound for the chunk-by-chunk search used for placement types this mod does not know. */
     static final int GENERIC_MAX_CHUNK_RADIUS = 96;
-    /** Cache entries per dimension before the cache is flushed (keeps memory bounded on long sessions). */
+    /**
+     * How far (blocks) a generation point may lie outside its start chunk. Jigsaw structures report the centre of the
+     * (rotated, offset) start piece, which can be tens of blocks outside the chunk; distance cut-offs are padded by
+     * this amount so nothing nearer is skipped.
+     */
+    static final int GENERATION_POINT_SLACK = 96;
+    /** Cached outcomes per dimension before the cache is flushed (keeps memory bounded on long sessions). */
     private static final int MAX_CACHE_ENTRIES = 200_000;
 
     private final ResourceKey<Level> dimension;
@@ -61,10 +68,16 @@ public final class StructureLocator {
     private final LevelHeightAccessor heightAccessor;
     private final long seed;
     private final List<StructureSet> sets;
+    /** For every set: indices of EARLIER sets (vanilla iteration order) that share at least one structure with it. */
+    private final int[][] earlierSharing;
     private final List<Holder.Reference<Structure>> structures;
     private final Map<Structure, List<PlacementRef>> placements = new IdentityHashMap<>();
-    private final ConcurrentHashMap<Long, Outcome> cache = new ConcurrentHashMap<>();
+    private final List<ConcurrentHashMap<Long, Outcome>> caches;
+    /** Predictions proven wrong by a loaded chunk; kept separately so cache flushes never resurrect them. */
+    private final List<Set<Long>> invalidated;
+    private final AtomicInteger cachedEntries = new AtomicInteger();
     private final Set<Structure> failedStructures = ConcurrentHashMap.newKeySet();
+    private final Set<StructureSet> failedSets = ConcurrentHashMap.newKeySet();
 
     /** A structure set the structure belongs to, with the set's placement. */
     record PlacementRef(int setIndex, StructurePlacement placement) {
@@ -96,8 +109,22 @@ public final class StructureLocator {
 
         List<Holder<StructureSet>> possible = state.possibleStructureSets();
         this.sets = new ArrayList<>(possible.size());
+        this.caches = new ArrayList<>(possible.size());
+        this.invalidated = new ArrayList<>(possible.size());
         for (Holder<StructureSet> holder : possible) {
             sets.add(holder.value());
+            caches.add(new ConcurrentHashMap<>());
+            invalidated.add(ConcurrentHashMap.newKeySet());
+        }
+        this.earlierSharing = new int[sets.size()][];
+        for (int i = 0; i < sets.size(); i++) {
+            List<Integer> earlier = new ArrayList<>();
+            for (int j = 0; j < i; j++) {
+                if (sharesStructure(sets.get(i), sets.get(j))) {
+                    earlier.add(j);
+                }
+            }
+            earlierSharing[i] = earlier.stream().mapToInt(Integer::intValue).toArray();
         }
 
         List<Holder.Reference<Structure>> found = new ArrayList<>();
@@ -160,16 +187,31 @@ public final class StructureLocator {
         return seed;
     }
 
+    private static boolean sharesStructure(StructureSet a, StructureSet b) {
+        for (StructureSet.StructureSelectionEntry ea : a.structures()) {
+            for (StructureSet.StructureSelectionEntry eb : b.structures()) {
+                if (ea.structure().value() == eb.structure().value()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean contains(StructureSet set, Structure structure) {
+        for (StructureSet.StructureSelectionEntry entry : set.structures()) {
+            if (entry.structure().value() == structure) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private int findSet(StructurePlacement placement, Structure structure) {
         for (int i = 0; i < sets.size(); i++) {
             StructureSet set = sets.get(i);
-            if (set.placement() != placement) {
-                continue;
-            }
-            for (StructureSet.StructureSelectionEntry entry : set.structures()) {
-                if (entry.structure().value() == structure) {
-                    return i;
-                }
+            if (set.placement() == placement && contains(set, structure)) {
+                return i;
             }
         }
         return -1;
@@ -196,7 +238,7 @@ public final class StructureLocator {
             } else if (placement instanceof ConcentricRingsStructurePlacement rings) {
                 locateRings(structure, ref.setIndex(), rings, centerX, centerZ, radius, results, cancelled);
             } else {
-                locateGeneric(structure, ref.setIndex(), placement, centerX, centerZ, radius, count, cancelled, results);
+                locateGeneric(structure, ref.setIndex(), centerX, centerZ, radius, count, cancelled, results);
             }
         }
         results.sort(Comparator.comparingDouble(Located::distanceSqr));
@@ -226,8 +268,9 @@ public final class StructureLocator {
         int spacing = Math.max(1, placement.spacing());
         int regionX0 = PlacementMath.regionOf(PlacementMath.chunkOf(centerX), spacing);
         int regionZ0 = PlacementMath.regionOf(PlacementMath.chunkOf(centerZ), spacing);
-        int maxRing = PlacementMath.ringsForRadius(radius, spacing);
+        int maxRing = PlacementMath.ringsForRadius(radius + GENERATION_POINT_SLACK, spacing);
         double radiusSqr = (double) radius * radius;
+        double paddedSqr = sqr(radius + GENERATION_POINT_SLACK);
         List<Located> local = new ArrayList<>();
         for (int k = 0; k <= maxRing; k++) {
             if (cancelled.getAsBoolean()) {
@@ -236,7 +279,7 @@ public final class StructureLocator {
             if (local.size() >= count) {
                 local.sort(Comparator.comparingDouble(Located::distanceSqr));
                 double kth = Math.sqrt(local.get(count - 1).distanceSqr());
-                if (kth <= PlacementMath.ringMinDistanceBlocks(k, spacing)) {
+                if (kth <= PlacementMath.ringMinDistanceBlocks(k, spacing) - GENERATION_POINT_SLACK) {
                     break;
                 }
             }
@@ -248,7 +291,7 @@ public final class StructureLocator {
                 // Despite its parameter names, getPotentialStructureChunk takes CHUNK coordinates and floor-divides
                 // them by the spacing itself, so pass any chunk of the region (its first one).
                 ChunkPos chunk = placement.getPotentialStructureChunk(seed, regionX * spacing, regionZ * spacing);
-                if (!withinRadius(chunk, centerX, centerZ, radiusSqr)) {
+                if (!withinRadius(chunk, centerX, centerZ, paddedSqr)) {
                     continue;
                 }
                 Located located = evaluateFor(structure, setIndex, chunk, centerX, centerZ);
@@ -267,13 +310,14 @@ public final class StructureLocator {
             return;
         }
         double radiusSqr = (double) radius * radius;
+        double paddedSqr = sqr(radius + GENERATION_POINT_SLACK);
         List<ChunkPos> sorted = new ArrayList<>(positions);
         sorted.sort(Comparator.comparingDouble(c -> chunkDistanceSqr(c, centerX, centerZ)));
         for (ChunkPos chunk : sorted) {
             if (cancelled.getAsBoolean()) {
                 return;
             }
-            if (!withinRadius(chunk, centerX, centerZ, radiusSqr)) {
+            if (!withinRadius(chunk, centerX, centerZ, paddedSqr)) {
                 break; // sorted: everything after is further away
             }
             Located located = evaluateFor(structure, setIndex, chunk, centerX, centerZ);
@@ -284,13 +328,13 @@ public final class StructureLocator {
     }
 
     /** Fallback for modded placement types: test every chunk ring by ring with {@code isStructureChunk}. */
-    private void locateGeneric(Holder<Structure> structure, int setIndex, StructurePlacement placement,
-                               int centerX, int centerZ, int radius, int count, BooleanSupplier cancelled,
-                               List<Located> out) {
+    private void locateGeneric(Holder<Structure> structure, int setIndex, int centerX, int centerZ, int radius,
+                               int count, BooleanSupplier cancelled, List<Located> out) {
         int chunkX0 = PlacementMath.chunkOf(centerX);
         int chunkZ0 = PlacementMath.chunkOf(centerZ);
-        int maxRing = Math.min(GENERIC_MAX_CHUNK_RADIUS, (radius >> 4) + 1);
+        int maxRing = Math.min(GENERIC_MAX_CHUNK_RADIUS, ((radius + GENERATION_POINT_SLACK) >> 4) + 1);
         double radiusSqr = (double) radius * radius;
+        double paddedSqr = sqr(radius + GENERATION_POINT_SLACK);
         List<Located> local = new ArrayList<>();
         for (int k = 0; k <= maxRing; k++) {
             if (cancelled.getAsBoolean()) {
@@ -298,7 +342,8 @@ public final class StructureLocator {
             }
             if (local.size() >= count) {
                 local.sort(Comparator.comparingDouble(Located::distanceSqr));
-                if (Math.sqrt(local.get(count - 1).distanceSqr()) <= PlacementMath.ringMinDistanceBlocks(k, 1)) {
+                double kth = Math.sqrt(local.get(count - 1).distanceSqr());
+                if (kth <= PlacementMath.ringMinDistanceBlocks(k, 1) - GENERATION_POINT_SLACK) {
                     break;
                 }
             }
@@ -306,7 +351,7 @@ public final class StructureLocator {
             for (int i = 0; i < cells; i++) {
                 long cell = PlacementMath.ringCell(k, i);
                 ChunkPos chunk = new ChunkPos(chunkX0 + PlacementMath.unpackX(cell), chunkZ0 + PlacementMath.unpackZ(cell));
-                if (!withinRadius(chunk, centerX, centerZ, radiusSqr)) {
+                if (!withinRadius(chunk, centerX, centerZ, paddedSqr)) {
                     continue;
                 }
                 Located located = evaluateFor(structure, setIndex, chunk, centerX, centerZ);
@@ -318,8 +363,11 @@ public final class StructureLocator {
         out.addAll(local);
     }
 
+    private static double sqr(double v) {
+        return v * v;
+    }
+
     private static boolean withinRadius(ChunkPos chunk, int centerX, int centerZ, double radiusSqr) {
-        // Generation points lie inside their start chunk: compare against the closest point of the chunk.
         double dx = Math.max(0, Math.max(chunk.getMinBlockX() - centerX, centerX - chunk.getMaxBlockX()));
         double dz = Math.max(0, Math.max(chunk.getMinBlockZ() - centerZ, centerZ - chunk.getMaxBlockZ()));
         return dx * dx + dz * dz <= radiusSqr;
@@ -345,38 +393,77 @@ public final class StructureLocator {
         return new Located(structure, setIndex, chunk.x, chunk.z, outcome.x(), outcome.y(), outcome.z(), dx * dx + dz * dz);
     }
 
-    /** Cached: which entry of the set (if any) generates its start in this chunk. */
+    /**
+     * Which entry of the set (if any) starts in this chunk. The cheap placement test runs every time and is never
+     * cached (that would flood the cache with rejections); the expensive validation is cached.
+     */
     Outcome outcome(int setIndex, ChunkPos chunk) {
-        long key = cacheKey(setIndex, chunk.x, chunk.z);
+        long key = ChunkPos.asLong(chunk.x, chunk.z);
+        if (invalidated.get(setIndex).contains(key)) {
+            return Outcome.NONE;
+        }
+        StructureSet set = sets.get(setIndex);
+        if (!placementAccepts(set, chunk)) {
+            return Outcome.NONE;
+        }
+        ConcurrentHashMap<Long, Outcome> cache = caches.get(setIndex);
         Outcome cached = cache.get(key);
         if (cached != null) {
             return cached;
         }
-        Outcome computed = compute(sets.get(setIndex), chunk);
-        if (cache.size() > MAX_CACHE_ENTRIES) {
-            cache.clear();
+        Outcome computed = compute(setIndex, chunk);
+        if (cachedEntries.incrementAndGet() > MAX_CACHE_ENTRIES) {
+            for (ConcurrentHashMap<Long, Outcome> c : caches) {
+                c.clear();
+            }
+            cachedEntries.set(0);
         }
-        cache.put(key, computed);
-        return computed;
+        Outcome previous = cache.putIfAbsent(key, computed);
+        if (invalidated.get(setIndex).contains(key)) {
+            return Outcome.NONE; // invalidated while we were computing: the loaded world wins
+        }
+        return previous != null ? previous : computed;
     }
 
-    /** Marks a prediction as wrong (the start chunk is loaded and has no such structure). */
+    /** Marks a prediction as wrong (the start chunk is loaded and has no such structure). Server thread. */
     void invalidate(int setIndex, int chunkX, int chunkZ) {
-        cache.put(cacheKey(setIndex, chunkX, chunkZ), Outcome.NONE);
+        if (setIndex < 0 || setIndex >= sets.size()) {
+            return;
+        }
+        long key = ChunkPos.asLong(chunkX, chunkZ);
+        invalidated.get(setIndex).add(key);
+        caches.get(setIndex).remove(key);
     }
 
-    private static long cacheKey(int setIndex, int chunkX, int chunkZ) {
-        // 22 bits per chunk coordinate is enough for the 30M block world border (1.875M chunks).
-        return ((long) setIndex << 44) | ((long) (chunkX & 0x3FFFFF) << 22) | (chunkZ & 0x3FFFFF);
+    private boolean placementAccepts(StructureSet set, ChunkPos chunk) {
+        if (failedSets.contains(set)) {
+            return false;
+        }
+        try {
+            return set.placement().isStructureChunk(state, chunk.x, chunk.z);
+        } catch (RuntimeException e) {
+            if (failedSets.add(set)) {
+                StructureCompass.LOGGER.warn("Structure Compass: placement of a structure set in {} failed ({}); it will be skipped",
+                        dimension.identifier(), e.toString());
+            }
+            return false;
+        }
     }
 
-    /** Mirrors {@code ChunkGenerator#createStructures} for one structure set and one chunk. */
-    private Outcome compute(StructureSet set, ChunkPos chunk) {
-        StructurePlacement placement = set.placement();
-        if (!placement.isStructureChunk(state, chunk.x, chunk.z)) {
-            return Outcome.NONE;
+    /** Mirrors {@code ChunkGenerator#createStructures} for one structure set and one chunk (placement already accepted). */
+    private Outcome compute(int setIndex, ChunkPos chunk) {
+        StructureSet set = sets.get(setIndex);
+        // Vanilla skips a set when one of its structures already has a start in this chunk, placed by an earlier set.
+        for (int earlier : earlierSharing[setIndex]) {
+            Outcome o = outcome(earlier, chunk);
+            if (o.entryIndex() >= 0 && contains(set, sets.get(earlier).structures().get(o.entryIndex()).structure().value())) {
+                return Outcome.NONE;
+            }
         }
         List<StructureSet.StructureSelectionEntry> entries = set.structures();
+        if (entries.isEmpty()) {
+            return Outcome.NONE;
+        }
         if (entries.size() == 1) {
             return tryEntry(entries.get(0), 0, chunk);
         }
@@ -389,7 +476,7 @@ public final class StructureLocator {
         }
         WorldgenRandom random = new WorldgenRandom(new LegacyRandomSource(0L));
         random.setLargeFeatureSeed(seed, chunk.x, chunk.z);
-        while (!remaining.isEmpty()) {
+        while (!remaining.isEmpty() && totalWeight > 0) {
             int roll = random.nextInt(totalWeight);
             int pick = 0;
             for (int index : remaining) {
@@ -398,6 +485,9 @@ public final class StructureLocator {
                     break;
                 }
                 pick++;
+            }
+            if (pick >= remaining.size()) {
+                break; // cannot happen with positive weights; guards against broken modded data
             }
             int entryIndex = remaining.get(pick);
             StructureSet.StructureSelectionEntry entry = entries.get(entryIndex);
@@ -450,33 +540,5 @@ public final class StructureLocator {
             }
         }
         return false;
-    }
-
-    /** Index of the set entry that holds the structure, used to verify generated chunks. */
-    @Nullable StructureSet set(int setIndex) {
-        return setIndex >= 0 && setIndex < sets.size() ? sets.get(setIndex) : null;
-    }
-
-    /** Placement of a given set (for {@code getLocatePos}). */
-    StructurePlacement placement(int setIndex) {
-        return sets.get(setIndex).placement();
-    }
-
-    /** Debug/test helper: number of cached (set, chunk) outcomes. */
-    int cacheSize() {
-        return cache.size();
-    }
-
-    /** Visible for tests: all placements known for a structure. */
-    List<StructurePlacement> placementsOf(Structure structure) {
-        List<PlacementRef> refs = placements.get(structure);
-        if (refs == null) {
-            return Collections.emptyList();
-        }
-        List<StructurePlacement> list = new ArrayList<>(refs.size());
-        for (PlacementRef ref : refs) {
-            list.add(ref.placement());
-        }
-        return list;
     }
 }

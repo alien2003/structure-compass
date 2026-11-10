@@ -1,5 +1,6 @@
 package dev.alien2003.structurecompass.network;
 
+import dev.alien2003.structurecompass.server.SafeTeleport;
 import dev.alien2003.structurecompass.server.ScanService;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
@@ -25,6 +26,14 @@ public final class ModNetwork {
         registrar.playToClient(ScanStartPayload.TYPE, ScanStartPayload.STREAM_CODEC);
         registrar.playToClient(ScanResultsPayload.TYPE, ScanResultsPayload.STREAM_CODEC);
         registrar.playToServer(ScanRequestPayload.TYPE, ScanRequestPayload.STREAM_CODEC, ModNetwork::onScanRequest);
+        registrar.playToServer(TeleportRequestPayload.TYPE, TeleportRequestPayload.STREAM_CODEC, ModNetwork::onTeleportRequest);
+    }
+
+    private static void onTeleportRequest(TeleportRequestPayload payload, IPayloadContext context) {
+        ScanService service = ScanService.get();
+        if (context.player() instanceof ServerPlayer player && service != null && service.isEnabled()) {
+            SafeTeleport.handle(player, payload);
+        }
     }
 
     private static void onScanRequest(ScanRequestPayload payload, IPayloadContext context) {
