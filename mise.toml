@@ -1,0 +1,9 @@
+# Project-local toolchain. Run builds through ./dev (bash) or dev.cmd (Windows):
+# they point mise's data/cache/state/tmp/config dirs into ./.tools/mise so that
+# nothing is installed outside this folder.
+[tools]
+java = "temurin-21"
+
+[env]
+# Gradle distributions, dependency caches and Minecraft artifacts live inside the project.
+GRADLE_USER_HOME = "{{config_root}}/.gradle-home"

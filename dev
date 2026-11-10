@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Project-local build wrapper (Linux/macOS/Git Bash).
+# Usage: ./dev build | ./dev runClient | ./dev runGameTestServer | ./dev <any gradle task/args>
+#
+# Everything (mise, JDK, Gradle distribution, Gradle caches, Minecraft artifacts,
+# temp files) is kept inside this folder:
+#   .tools/mise/{data,cache,state,tmp,config}  - mise directories
+#   .gradle-home/                              - GRADLE_USER_HOME (set in mise.toml [env])
+#   .tools/tmp/                                - TMPDIR for the build
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+export MISE_DATA_DIR="$ROOT/.tools/mise/data"
+export MISE_CACHE_DIR="$ROOT/.tools/mise/cache"
+export MISE_STATE_DIR="$ROOT/.tools/mise/state"
+export MISE_TMP_DIR="$ROOT/.tools/mise/tmp"
+export MISE_CONFIG_DIR="$ROOT/.tools/mise/config"
+# Trust this project's mise.toml without an interactive prompt, never touch global config.
+export MISE_TRUSTED_CONFIG_PATHS="$ROOT"
+export MISE_YES=1
+export MISE_HIDE_UPDATE_WARNING=1
+export TMPDIR="$ROOT/.tools/tmp"
+
+mkdir -p "$MISE_DATA_DIR" "$MISE_CACHE_DIR" "$MISE_STATE_DIR" "$MISE_TMP_DIR" "$MISE_CONFIG_DIR" "$TMPDIR"
+
+MISE_BIN="$(command -v mise || true)"
+if [ -z "$MISE_BIN" ]; then
+  # No mise on PATH: bootstrap a private copy into .tools/bin (no global install).
+  MISE_BIN="$ROOT/.tools/bin/mise"
+  if [ ! -x "$MISE_BIN" ]; then
+    echo "[dev] mise not found on PATH, installing a project-local copy into .tools/bin ..." >&2
+    mkdir -p "$ROOT/.tools/bin"
+    curl -fsSL https://mise.run | MISE_INSTALL_PATH="$MISE_BIN" MISE_QUIET=1 sh
+  fi
+fi
+
+cd "$ROOT"
+chmod +x ./gradlew 2>/dev/null || true
+exec "$MISE_BIN" exec -- ./gradlew "$@"
