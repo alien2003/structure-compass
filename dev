@@ -9,7 +9,14 @@
 #   .tools/tmp/                                - TMPDIR for the build
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    # Git Bash / MSYS on Windows: hand native programs (mise.exe, java.exe) a Windows path (C:/...),
+    # otherwise "/c/Users/..." could be read as a path on the current drive.
+    ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -W)" ;;
+  *)
+    ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" ;;
+esac
 
 export MISE_DATA_DIR="$ROOT/.tools/mise/data"
 export MISE_CACHE_DIR="$ROOT/.tools/mise/cache"
